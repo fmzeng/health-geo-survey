@@ -25,7 +25,7 @@ with st.sidebar.form("add_form"):
     pid = st.text_input("点位编号", f"HG-{len(df)+1:03d}")
     lon = st.number_input("经度", value=112.938, format="%.6f")
     lat = st.number_input("纬度", value=28.228, format="%.6f")
-    ptype = st.selectbox("点位类型", ["土壤", "地下水", "地表水", "沉积物"])
+    ptype = st.selectbox("点位类型", ["岩石", "土壤", "地下水", "地表水", "沉积物", "农作物", "血液", "尿液", "人发"])
     status = st.selectbox("采样状态", ["待采样", "已采样", "已送检", "已完成"])
     owner = st.text_input("负责人")
     if st.form_submit_button("添加"):
