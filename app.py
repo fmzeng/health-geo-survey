@@ -15,7 +15,7 @@ st.set_page_config(
 
 # 状态 → 颜色 配置
 STATUS_COLORS = {
-    "待采样": "gray",
+    "待采样": "yellow",
     "已采样": "blue",
     "已送检": "orange",
     "已完成": "green",
