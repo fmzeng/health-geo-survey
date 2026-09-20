@@ -5,15 +5,13 @@ from folium.plugins import MarkerCluster
 from streamlit_folium import st_folium
 import os
 import math
+import re
 
 # ========== 页面设置 ==========
 st.set_page_config(
     page_title="健康地质调查点位布设与采样流程管理软件",
     layout="wide"
 )
-st.title("🧭 健康地质调查点位布设与采样流程管理软件")
-
-DATA_FILE = "points.csv"
 
 # 状态 → 颜色 配置
 STATUS_COLORS = {
@@ -23,9 +21,50 @@ STATUS_COLORS = {
     "已完成": "green",
 }
 
+DATA_DIR = "user_data"   # 每个用户的数据存放在这个目录下
+os.makedirs(DATA_DIR, exist_ok=True)
+
+# ========== 登录 ==========
+if "user" not in st.session_state:
+    st.session_state.user = None
+
+def safe_filename(name: str) -> str:
+    """把用户名转成安全的文件名"""
+    return re.sub(r"[^\w\-]", "_", name)
+
+if st.session_state.user is None:
+    st.title("🔐 健康地质调查点位布设与采样流程管理软件")
+    st.subheader("请登录")
+
+    with st.form("login_form"):
+        username = st.text_input("用户名", placeholder="请输入用户名")
+        password = st.text_input("密码", type="password", placeholder="任意密码（演示用）")
+        ok = st.form_submit_button("登录")
+
+    if ok:
+        if not username.strip():
+            st.error("用户名不能为空")
+        else:
+            st.session_state.user = username.strip()
+            st.rerun()
+
+    st.info("💡 这是演示版登录：输入任意用户名和密码即可。每个用户的数据互相独立。")
+    st.stop()
+
+# ========== 已登录 ==========
+user = st.session_state.user
+DATA_FILE = os.path.join(DATA_DIR, f"points_{safe_filename(user)}.csv")
+
+st.title("🧭 健康地质调查点位布设与采样流程管理软件")
+st.caption(f"当前用户：**{user}** ｜ 数据文件：`{DATA_FILE}`")
+
+# 侧边栏退出登录
+if st.sidebar.button("🚪 退出登录"):
+    st.session_state.user = None
+    st.rerun()
+
 # ========== 坐标系转换 ==========
 def out_of_china(lng, lat):
-    """判断是否在中国境外（境外不做偏移）"""
     return not (73.66 < lng < 135.05 and 3.86 < lat < 53.55)
 
 def _transform_lat(x, y):
@@ -58,22 +97,22 @@ def wgs84_to_gcj02(lng, lat):
     dlng = (dlng * 180.0) / (a / sqrtmagic * math.cos(radlat) * math.pi)
     return lng + dlng, lat + dlat
 
-# ========== 读取数据（含异常处理）==========
-def load_data():
+# ========== 读取当前用户数据 ==========
+def load_data(path):
     cols = ["编号", "经度", "纬度", "类型", "状态", "负责人"]
-    if os.path.exists(DATA_FILE):
+    if os.path.exists(path):
         try:
-            df = pd.read_csv(DATA_FILE)
+            df = pd.read_csv(path)
             for c in cols:
                 if c not in df.columns:
                     df[c] = None
             return df[cols]
         except Exception as e:
-            st.warning(f"读取 {DATA_FILE} 失败，已新建空表。原因：{e}")
+            st.warning(f"读取数据失败，已新建空表。原因：{e}")
             return pd.DataFrame(columns=cols)
     return pd.DataFrame(columns=cols)
 
-df = load_data()
+df = load_data(DATA_FILE)
 
 # ========== 侧边栏：添加点位 ==========
 st.sidebar.header("➕ 添加调查点位")
@@ -88,7 +127,7 @@ with st.sidebar.form("add_form"):
         ["岩石", "土壤", "沉积物", "地表水", "地下水", "血液", "尿液", "人发"]
     )
     status = st.selectbox("采样状态", list(STATUS_COLORS.keys()))
-    owner = st.text_input("负责人")
+    owner = st.text_input("负责人", value=user)
     submitted = st.form_submit_button("添加")
 
     if submitted:
@@ -120,7 +159,7 @@ with tab1:
         st.download_button(
             "⬇️ 导出CSV",
             edited.to_csv(index=False).encode("utf-8-sig"),
-            "points.csv", "text/csv"
+            f"points_{safe_filename(user)}.csv", "text/csv"
         )
 
 # ---- Tab2：地图 ----
@@ -129,18 +168,17 @@ with tab2:
     if len(df) == 0:
         st.info("暂无点位，请先在左侧添加。")
     else:
-        # 地图中心：WGS-84 → GCJ-02
         center_lng, center_lat = wgs84_to_gcj02(
             df["经度"].mean(), df["纬度"].mean()
         )
         m = folium.Map(
             location=[center_lat, center_lng],
             zoom_start=8,
-            tiles=None,          # 关闭默认底图
+            tiles=None,
             control_scale=True
         )
 
-        # 高德矢量路网底图
+        # 高德矢量底图
         folium.TileLayer(
             tiles='https://webrd0{s}.is.autonavi.com/appmaptile?lang=zh_cn&size=1&scale=1&style=8&x={x}&y={y}&z={z}',
             subdomains=['1', '2', '3', '4'],
@@ -150,7 +188,7 @@ with tab2:
             control=True
         ).add_to(m)
 
-        # 高德卫星影像底图
+        # 高德影像底图
         folium.TileLayer(
             tiles='https://webst0{s}.is.autonavi.com/appmaptile?style=6&x={x}&y={y}&z={z}',
             subdomains=['1', '2', '3', '4'],
@@ -160,7 +198,7 @@ with tab2:
             control=True
         ).add_to(m)
 
-        # 高德影像 + 路网注记（可选，叠加在影像上）
+        # 高德路网注记（叠加在影像上）
         folium.TileLayer(
             tiles='https://webst0{s}.is.autonavi.com/appmaptile?style=8&x={x}&y={y}&z={z}',
             subdomains=['1', '2', '3', '4'],
@@ -170,7 +208,6 @@ with tab2:
             control=True
         ).add_to(m)
 
-        # 点位聚合
         marker_cluster = MarkerCluster(name="调查点位").add_to(m)
 
         for _, r in df.iterrows():
@@ -178,11 +215,9 @@ with tab2:
                 lng = float(r["经度"])
                 lat = float(r["纬度"])
             except (TypeError, ValueError):
-                continue  # 跳过无效坐标
+                continue
 
-            # 关键：WGS-84 → GCJ-02
             gcj_lng, gcj_lat = wgs84_to_gcj02(lng, lat)
-
             folium.Marker(
                 [gcj_lat, gcj_lng],
                 popup=f"{r['编号']} | {r['类型']} | {r['状态']}",
