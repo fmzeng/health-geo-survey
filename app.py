@@ -43,7 +43,7 @@ def _transform_lng(x, y):
     return ret
 
 def wgs84_to_gcj02(lng, lat):
-    """WGS-84 转 GCJ-02"""
+    """WGS-84 转 GCJ-02（高德底图使用）"""
     if out_of_china(lng, lat):
         return lng, lat
     a = 6378245.0
@@ -58,29 +58,12 @@ def wgs84_to_gcj02(lng, lat):
     dlng = (dlng * 180.0) / (a / sqrtmagic * math.cos(radlat) * math.pi)
     return lng + dlng, lat + dlat
 
-def gcj02_to_bd09(lng, lat):
-    """GCJ-02 转 BD-09"""
-    x_pi = math.pi * 3000.0 / 180.0
-    z = math.sqrt(lng * lng + lat * lat) + 0.00002 * math.sin(lat * x_pi)
-    theta = math.atan2(lat, lng) + 0.000003 * math.cos(lng * x_pi)
-    bd_lng = z * math.cos(theta) + 0.0065
-    bd_lat = z * math.sin(theta) + 0.006
-    return bd_lng, bd_lat
-
-def wgs84_to_bd09(lng, lat):
-    """WGS-84 转 BD-09（百度底图使用）"""
-    if out_of_china(lng, lat):
-        return lng, lat
-    gcj_lng, gcj_lat = wgs84_to_gcj02(lng, lat)
-    return gcj02_to_bd09(gcj_lng, gcj_lat)
-
 # ========== 读取数据（含异常处理）==========
 def load_data():
     cols = ["编号", "经度", "纬度", "类型", "状态", "负责人"]
     if os.path.exists(DATA_FILE):
         try:
             df = pd.read_csv(DATA_FILE)
-            # 确保列齐全
             for c in cols:
                 if c not in df.columns:
                     df[c] = None
@@ -109,7 +92,6 @@ with st.sidebar.form("add_form"):
     submitted = st.form_submit_button("添加")
 
     if submitted:
-        # 编号唯一性检查
         if pid in df["编号"].astype(str).values:
             st.sidebar.error(f"编号 {pid} 已存在，请更换。")
         else:
@@ -143,12 +125,12 @@ with tab1:
 
 # ---- Tab2：地图 ----
 with tab2:
-    st.subheader("调查点位分布地图（底图：百度地图，数据坐标系：WGS-84）")
+    st.subheader("调查点位分布地图（底图：高德地图 / 高德影像，数据坐标系：WGS-84）")
     if len(df) == 0:
         st.info("暂无点位，请先在左侧添加。")
     else:
-        # 地图中心：先转 BD-09
-        center_lng, center_lat = wgs84_to_bd09(
+        # 地图中心：WGS-84 → GCJ-02
+        center_lng, center_lat = wgs84_to_gcj02(
             df["经度"].mean(), df["纬度"].mean()
         )
         m = folium.Map(
@@ -158,23 +140,33 @@ with tab2:
             control_scale=True
         )
 
-        # 百度矢量底图
+        # 高德矢量路网底图
         folium.TileLayer(
-            tiles='http://online{s}.map.bdimg.com/onlinelabel/?qt=tile&x={x}&y={y}&z={z}&styles=pl&scaler=1&p=1',
-            subdomains=['0', '1', '2', '3'],
-            attr='百度地图',
-            name='百度地图',
+            tiles='https://webrd0{s}.is.autonavi.com/appmaptile?lang=zh_cn&size=1&scale=1&style=8&x={x}&y={y}&z={z}',
+            subdomains=['1', '2', '3', '4'],
+            attr='高德地图',
+            name='高德地图（矢量）',
             overlay=False,
             control=True
         ).add_to(m)
 
-        # 百度卫星底图
+        # 高德卫星影像底图
         folium.TileLayer(
-            tiles='http://shangetu{s}.map.bdimg.com/it/u=x={x};y={y};z={z};v=009;type=sate&fm=46',
-            subdomains=['0', '1', '2', '3'],
-            attr='百度卫星',
-            name='百度卫星',
+            tiles='https://webst0{s}.is.autonavi.com/appmaptile?style=6&x={x}&y={y}&z={z}',
+            subdomains=['1', '2', '3', '4'],
+            attr='高德影像',
+            name='高德影像（卫星）',
             overlay=False,
+            control=True
+        ).add_to(m)
+
+        # 高德影像 + 路网注记（可选，叠加在影像上）
+        folium.TileLayer(
+            tiles='https://webst0{s}.is.autonavi.com/appmaptile?style=8&x={x}&y={y}&z={z}',
+            subdomains=['1', '2', '3', '4'],
+            attr='高德注记',
+            name='高德路网注记',
+            overlay=True,
             control=True
         ).add_to(m)
 
@@ -188,18 +180,18 @@ with tab2:
             except (TypeError, ValueError):
                 continue  # 跳过无效坐标
 
-            # 关键：WGS-84 → BD-09
-            bd_lng, bd_lat = wgs84_to_bd09(lng, lat)
+            # 关键：WGS-84 → GCJ-02
+            gcj_lng, gcj_lat = wgs84_to_gcj02(lng, lat)
 
             folium.Marker(
-                [bd_lat, bd_lng],
+                [gcj_lat, gcj_lng],
                 popup=f"{r['编号']} | {r['类型']} | {r['状态']}",
                 tooltip=str(r["编号"]),
                 icon=folium.Icon(color=STATUS_COLORS.get(r["状态"], "blue"))
             ).add_to(marker_cluster)
 
-        folium.LayerControl().add_to(m)
-        st_folium(m, width=None, height=550)
+        folium.LayerControl(collapsed=False).add_to(m)
+        st_folium(m, width=None, height=600)
 
 # ========== 底部统计 ==========
 st.divider()
