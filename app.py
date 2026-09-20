@@ -63,10 +63,38 @@ with tab2:
     if len(df) == 0:
         st.info("暂无点位，请先在左侧添加。")
     else:
-        m = folium.Map(
-            location=[df["纬度"].mean(), df["经度"].mean()],
-            zoom_start=8
-        )
+       import folium
+
+# 创建地图，location 传入 WGS-84 坐标（经度, 纬度）
+m = folium.Map(
+    location=[28.2278, 112.9388],  # 长沙，WGS-84
+    zoom_start=10,
+    tiles=None,                     # 关闭默认底图
+    control_scale=True
+)
+
+# 添加高德地图底图（矢量路网）
+folium.TileLayer(
+    tiles='https://webrd0{s}.is.autonavi.com/appmaptile?lang=zh_cn&size=1&scale=1&style=8&x={x}&y={y}&z={z}',
+    subdomains=['1', '2', '3', '4'],
+    attr='高德地图',
+    name='高德地图',
+    overlay=False,
+    control=True
+).add_to(m)
+
+# 添加高德卫星影像（可选）
+folium.TileLayer(
+    tiles='https://webst0{s}.is.autonavi.com/appmaptile?style=6&x={x}&y={y}&z={z}',
+    subdomains=['1', '2', '3', '4'],
+    attr='高德卫星',
+    name='高德卫星',
+    overlay=False,
+    control=True
+).add_to(m)
+
+folium.LayerControl().add_to(m)
+m.save('健康地质图.html')
         colors = {
             "待采样": "gray", "已采样": "blue",
             "已送检": "orange", "已完成": "green"
